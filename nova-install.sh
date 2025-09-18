@@ -282,9 +282,13 @@ EOF
     DEBIAN_FRONTEND=noninteractive apt install -y ufw
 
     # Configure firewall rules
-    /usr/sbin/ufw --force enable
-    /usr/sbin/ufw default deny incoming
-    /usr/sbin/ufw default allow outgoing
+    if command -v ufw &>/dev/null; then
+        ufw --force enable
+        ufw default deny incoming
+        ufw default allow outgoing
+    else
+        print_warning "UFW not found, skipping firewall configuration"
+    fi
 
     # Gaming support (underlying only)
     print_status "Installing gaming support libraries..."
@@ -376,20 +380,33 @@ install_polish() {
 
     # Plymouth boot splash
     print_status "Installing Plymouth boot splash..."
-    DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes
+    DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes grub2-common
 
     # Set spinner theme
-    plymouth-set-default-theme spinner || true
-
-    # Update GRUB for quiet splash
-    if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
-        sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
-    else
-        echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> /etc/default/grub
+    if command -v plymouth-set-default-theme &>/dev/null; then
+        plymouth-set-default-theme spinner || true
     fi
 
-    update-grub
-    update-initramfs -u
+    # Update GRUB for quiet splash
+    if [[ -f /etc/default/grub ]]; then
+        if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
+            sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
+        else
+            echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> /etc/default/grub
+        fi
+
+        # Update GRUB configuration
+        if command -v update-grub &>/dev/null; then
+            update-grub
+        elif command -v grub-mkconfig &>/dev/null; then
+            grub-mkconfig -o /boot/grub/grub.cfg
+        fi
+    fi
+
+    # Update initramfs
+    if command -v update-initramfs &>/dev/null; then
+        update-initramfs -u
+    fi
 
     # Install kernel headers
     print_status "Installing kernel headers..."

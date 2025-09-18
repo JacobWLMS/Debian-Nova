@@ -280,11 +280,9 @@ EOF
     # Firewall setup
     print_status "Configuring firewall..."
     DEBIAN_FRONTEND=noninteractive apt install -y ufw
-
-    # Configure firewall rules
-    /usr/sbin/ufw --force enable
-    /usr/sbin/ufw default deny incoming
-    /usr/sbin/ufw default allow outgoing
+    ufw --force enable
+    ufw default deny incoming
+    ufw default allow outgoing
 
     # Gaming support (underlying only)
     print_status "Installing gaming support libraries..."

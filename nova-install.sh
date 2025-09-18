@@ -19,25 +19,12 @@ SCRIPT_VERSION="1.0.0"
 LOG_FILE="/var/log/nova-install.log"
 TEMP_DIR="/tmp/nova-install-$$"
 
-# Colors and styling for output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-BOLD='\033[1m'
-DIM='\033[2m'
 NC='\033[0m' # No Color
-
-# Unicode symbols
-CHECK="✓"
-CROSS="✗"
-ARROW="→"
-STAR="★"
-DOT="•"
-SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 # Ensure running as root
 if [[ $EUID -ne 0 ]]; then
@@ -47,70 +34,20 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Function definitions
-# Cool terminal UI functions
-print_banner() {
-    echo -e "${PURPLE}${BOLD}"
-    echo "    ███╗   ██╗ ██████╗ ██╗   ██╗ █████╗ "
-    echo "    ████╗  ██║██╔═══██╗██║   ██║██╔══██╗"
-    echo "    ██╔██╗ ██║██║   ██║██║   ██║███████║"
-    echo "    ██║╚██╗██║██║   ██║╚██╗ ██╔╝██╔══██║"
-    echo "    ██║ ╚████║╚██████╔╝ ╚████╔╝ ██║  ██║"
-    echo "    ╚═╝  ╚═══╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝"
-    echo -e "${NC}"
-    echo -e "${CYAN}${BOLD}    Debian Nova Installer v${SCRIPT_VERSION}${NC}"
-    echo -e "${DIM}    Transform your Debian Testing into a modern desktop${NC}"
-    echo ""
-}
-
-print_step() {
-    echo -e "${CYAN}${BOLD}${ARROW} $1${NC}"
-}
-
 print_status() {
-    echo -e "  ${BLUE}${DOT}${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
 print_success() {
-    echo -e "  ${GREEN}${CHECK}${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
 print_warning() {
-    echo -e "  ${YELLOW}⚠${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
 print_error() {
-    echo -e "  ${RED}${CROSS}${NC} $1"
-}
-
-show_progress() {
-    local current=$1
-    local total=$2
-    local desc="$3"
-    local width=50
-    local percent=$((current * 100 / total))
-    local filled=$((current * width / total))
-
-    printf "\r  ${CYAN}[${NC}"
-    for ((i=0; i<filled; i++)); do printf "${GREEN}█${NC}"; done
-    for ((i=filled; i<width; i++)); do printf "${DIM}░${NC}"; done
-    printf "${CYAN}]${NC} ${BOLD}%3d%%${NC} ${desc}" "$percent"
-}
-
-finish_progress() {
-    echo ""
-}
-
-spinner() {
-    local pid=$1
-    local msg="$2"
-    local i=0
-
-    while kill -0 $pid 2>/dev/null; do
-        printf "\r  ${CYAN}${SPINNER[i % ${#SPINNER[@]}]}${NC} %s" "$msg"
-        sleep 0.1
-        ((i++))
-    done
-    printf "\r  ${GREEN}${CHECK}${NC} %s\n" "$msg"
+    echo -e "${RED}[ERROR]${NC} $1"
 }
 
 # Cleanup function
@@ -134,12 +71,10 @@ setup_debian_testing() {
 
         echo ""
         print_warning "This system is not running Debian Testing/Trixie"
+        echo "WARNING: This will upgrade your entire system to Debian Testing!"
+        echo "This includes all packages and may take significant time."
         echo ""
-        echo -e "  ${YELLOW}${BOLD}⚠️  WARNING: This will upgrade your entire system to Debian Testing!${NC}"
-        echo -e "  ${DIM}This includes all packages and may take significant time.${NC}"
-        echo ""
-        echo -e "  ${CYAN}Do you want to continue? ${BOLD}(y/N)${NC}"
-        read -p "  > " -n 1 -r
+        read -p "Do you want to continue? (y/N): " -n 1 -r
         echo ""
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             print_error "Debian Testing is required for Nova. Exiting."
@@ -193,23 +128,18 @@ check_requirements() {
 
 # Update system
 update_system() {
-    print_step "Updating System Packages"
+    print_status "Updating package lists..."
+    apt update
 
-    print_status "Refreshing package databases..."
-    apt update &>/dev/null &
-    spinner $! "Updating package lists"
+    print_status "Upgrading existing packages..."
+    DEBIAN_FRONTEND=noninteractive apt upgrade -y
 
-    print_status "Upgrading installed packages..."
-    DEBIAN_FRONTEND=noninteractive apt upgrade -y &>/dev/null &
-    spinner $! "Upgrading system packages"
-
-    print_success "System packages updated"
-    echo ""
+    print_success "System updated"
 }
 
 # Install bootstrap essentials
 install_bootstrap_essentials() {
-    print_step "Installing Bootstrap Essentials"
+    print_status "Installing bootstrap essentials..."
 
     local BOOTSTRAP_PACKAGES=(
         # Core utilities
@@ -222,15 +152,7 @@ install_bootstrap_essentials() {
         tar zip unzip p7zip-full
     )
 
-    local total=${#BOOTSTRAP_PACKAGES[@]}
-    local current=0
-
-    for package in "${BOOTSTRAP_PACKAGES[@]}"; do
-        ((current++))
-        show_progress $current $total "Installing $package"
-        DEBIAN_FRONTEND=noninteractive apt install -y $package &>/dev/null
-    done
-    finish_progress
+    DEBIAN_FRONTEND=noninteractive apt install -y "${BOOTSTRAP_PACKAGES[@]}"
 
     # Configure git-lfs if not already done
     if ! git lfs version &>/dev/null; then
@@ -238,76 +160,60 @@ install_bootstrap_essentials() {
     fi
 
     print_success "Bootstrap essentials installed"
-    echo ""
 }
 
 # Install GNOME Desktop
 install_gnome_desktop() {
-    print_step "Installing GNOME Desktop Environment"
+    print_status "Installing GNOME desktop environment..."
 
-    print_status "Installing GNOME core (this may take a while)..."
-    DEBIAN_FRONTEND=noninteractive apt install -y gnome-core gdm3 &>/dev/null &
-    spinner $! "Installing GNOME core components"
+    # Install core GNOME (minimal)
+    DEBIAN_FRONTEND=noninteractive apt install -y gnome-core gdm3
 
     # Core GNOME apps
     local GNOME_CORE_APPS=(
-        nautilus              # Files
-        gnome-text-editor      # Text Editor
-        gnome-terminal         # Terminal
-        gnome-control-center   # Settings
-        gnome-calculator       # Calculator
-        gnome-screenshot       # Screenshot
-        eog                    # Image Viewer
-        evince                 # PDF viewer
-        gnome-software         # Software center
+        nautilus
+        gnome-text-editor
+        gnome-terminal
+        gnome-control-center
+        gnome-calculator
+        gnome-screenshot
+        eog
+        evince
+        gnome-software
     )
-
-    local total=${#GNOME_CORE_APPS[@]}
-    local current=0
-    for app in "${GNOME_CORE_APPS[@]}"; do
-        ((current++))
-        show_progress $current $total "Installing $(echo $app | cut -d'#' -f1 | xargs)"
-        DEBIAN_FRONTEND=noninteractive apt install -y $(echo $app | cut -d'#' -f1 | xargs) &>/dev/null
-    done
-    finish_progress
+    DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_CORE_APPS[@]}"
 
     # GNOME extensions and tweaks
-    print_status "Installing GNOME extensions and tweaks..."
     local GNOME_EXTENSIONS=(
         gnome-tweaks
         gnome-shell-extensions
         gnome-shell-extension-appindicator
     )
-    DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTENSIONS[@]}" &>/dev/null &
-    spinner $! "Installing GNOME extensions"
+    DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTENSIONS[@]}"
 
     # Install GNOME Circle essentials
-    print_status "Installing GNOME Circle applications..."
     local GNOME_EXTRAS=(
         gnome-system-monitor
         gnome-disk-utility
         deja-dup
         gnome-software-plugin-flatpak
     )
-    DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTRAS[@]}" &>/dev/null &
-    spinner $! "Installing GNOME Circle apps"
+    DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTRAS[@]}"
 
     # Enable GDM if not already
-    print_status "Enabling GDM display manager..."
-    systemctl enable gdm &>/dev/null || true
+    systemctl enable gdm || true
 
     # Enable AppIndicator extension for current user (if running via sudo)
     if [[ -n "${SUDO_USER:-}" ]]; then
         sudo -u "$SUDO_USER" dbus-launch gsettings set org.gnome.shell enabled-extensions "['appindicatorsupport@rgcjonas.gmail.com']" 2>/dev/null || true
     fi
 
-    print_success "GNOME desktop environment installed"
-    echo ""
+    print_success "GNOME desktop installed"
 }
 
 # Install modern system stack
 install_modern_stack() {
-    print_step "Installing Modern System Stack"
+    print_status "Installing modern system stack..."
 
     # PipeWire audio stack
     print_status "Installing PipeWire audio system..."
@@ -321,13 +227,11 @@ install_modern_stack() {
         libspa-0.2-bluetooth
         libspa-0.2-jack
     )
-    DEBIAN_FRONTEND=noninteractive apt install -y "${PIPEWIRE_PACKAGES[@]}" &>/dev/null &
-    spinner $! "Installing PipeWire audio stack"
+    DEBIAN_FRONTEND=noninteractive apt install -y "${PIPEWIRE_PACKAGES[@]}"
 
     # Ensure PipeWire is the default
-    print_status "Configuring PipeWire as default audio system..."
-    systemctl --user --global disable pulseaudio.service pulseaudio.socket &>/dev/null || true
-    systemctl --user --global enable pipewire pipewire-pulse wireplumber &>/dev/null || true
+    systemctl --user --global disable pulseaudio.service pulseaudio.socket || true
+    systemctl --user --global enable pipewire pipewire-pulse wireplumber || true
 
     # Flatpak setup
     print_status "Setting up Flatpak..."
@@ -402,12 +306,11 @@ EOF
     DEBIAN_FRONTEND=noninteractive apt install -y powertop
 
     print_success "Modern system stack installed"
-    echo ""
 }
 
 # Install connectivity features
 install_connectivity() {
-    print_step "Installing Connectivity Features"
+    print_status "Installing connectivity features..."
 
     # GNOME Online Accounts
     DEBIAN_FRONTEND=noninteractive apt install -y gnome-online-accounts
@@ -471,52 +374,41 @@ install_connectivity() {
     fi
 
     print_success "Connectivity features installed"
-    echo ""
 }
 
 # Install polish improvements
 install_polish() {
-    print_step "Installing System Polish"
+    print_status "Installing system polish improvements..."
 
     # Plymouth boot splash
     print_status "Installing Plymouth boot splash..."
-    DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes &>/dev/null &
-    spinner $! "Installing Plymouth boot splash"
+    DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes
 
     # Set spinner theme
-    print_status "Configuring Plymouth theme..."
-    plymouth-set-default-theme spinner &>/dev/null || true
+    plymouth-set-default-theme spinner || true
 
     # Update GRUB for quiet splash
-    print_status "Configuring GRUB for quiet boot..."
     if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
         sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
     else
         echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> /etc/default/grub
     fi
 
-    print_status "Updating GRUB configuration..."
-    update-grub &>/dev/null &
-    spinner $! "Updating GRUB configuration"
-
-    print_status "Updating initramfs..."
-    update-initramfs -u &>/dev/null &
-    spinner $! "Rebuilding initramfs"
+    update-grub
+    update-initramfs -u
 
     # Install kernel headers
     print_status "Installing kernel headers..."
     KERNEL_VERSION=$(uname -r)
-    (DEBIAN_FRONTEND=noninteractive apt install -y "linux-headers-${KERNEL_VERSION}" || \
-        DEBIAN_FRONTEND=noninteractive apt install -y linux-headers-amd64) &>/dev/null &
-    spinner $! "Installing kernel headers"
+    DEBIAN_FRONTEND=noninteractive apt install -y "linux-headers-${KERNEL_VERSION}" || \
+        DEBIAN_FRONTEND=noninteractive apt install -y linux-headers-amd64
 
     print_success "System polish improvements installed"
-    echo ""
 }
 
 # Install developer tools (optional)
 install_developer_tools() {
-    print_step "Installing Developer Tools"
+    print_status "Installing developer tools..."
 
     # Core build tools
     local BUILD_TOOLS=(
@@ -563,30 +455,30 @@ install_developer_tools() {
     DEBIAN_FRONTEND=noninteractive apt install -y "${CONTAINERS[@]}"
 
     print_success "Developer tools installed"
-    echo ""
 }
 
-# Setup logging and start
+# Setup logging
 mkdir -p "$(dirname "$LOG_FILE")"
 exec > >(tee -a "$LOG_FILE")
 exec 2>&1
 
-print_banner
-echo -e "${DIM}Started: $(date)${NC}"
+echo "=================================================================================="
+echo " Nova Installer v${SCRIPT_VERSION} - $(date)"
+echo "=================================================================================="
 echo ""
 
 # Main installation flow
 main() {
-    echo -e "${DIM}This will transform your Debian system into Nova:${NC}"
-    echo -e "  ${CYAN}${DOT}${NC} Minimal GNOME desktop with Wayland"
-    echo -e "  ${CYAN}${DOT}${NC} Modern audio stack (PipeWire)"
-    echo -e "  ${CYAN}${DOT}${NC} Flatpak app ecosystem"
-    echo -e "  ${CYAN}${DOT}${NC} Gaming and development support"
-    echo -e "  ${CYAN}${DOT}${NC} Quality-of-life improvements"
+    echo "This will transform your Debian system into Nova:"
+    echo "  - Minimal GNOME desktop with Wayland"
+    echo "  - Modern audio stack (PipeWire)"
+    echo "  - Flatpak app ecosystem"
+    echo "  - Gaming and development support"
+    echo "  - Quality-of-life improvements"
     echo ""
-    echo -e "${DIM}Estimated time: 15-30 minutes${NC}"
+    echo "Estimated time: 15-30 minutes"
     echo ""
-    echo -e "${CYAN}${BOLD}Press Enter to begin installation...${NC}"
+    echo "Press Enter to begin installation..."
     read
 
     setup_debian_testing
@@ -598,67 +490,51 @@ main() {
     install_connectivity
     install_polish
 
-    # Ask about developer tools with cool interface
+    # Ask about developer tools
     echo ""
-    echo -e "${PURPLE}${BOLD} \u2699  Developer Tools (Optional) \u2699 ${NC}"
+    echo "Developer Tools (Optional)"
+    echo "Available tools:"
+    echo "  - Build essentials (gcc, cmake, ninja)"
+    echo "  - Programming languages (Python, Java, Node.js, Rust, Go)"
+    echo "  - Container tools (Podman, Buildah)"
+    echo "  - Debugging tools (gdb, valgrind, strace)"
     echo ""
-    echo -e "  ${CYAN}${BOLD}Available tools:${NC}"
-    echo -e "    ${GREEN}${DOT}${NC} Build essentials (gcc, cmake, ninja)"
-    echo -e "    ${GREEN}${DOT}${NC} Programming languages (Python, Java, Node.js, Rust, Go)"
-    echo -e "    ${GREEN}${DOT}${NC} Container tools (Podman, Buildah)"
-    echo -e "    ${GREEN}${DOT}${NC} Debugging tools (gdb, valgrind, strace)"
-    echo ""
-    echo -e "  ${YELLOW}${BOLD}Install developer tools? ${NC}${BOLD}(y/N)${NC}"
-    read -p "  > " -n 1 -r
+    read -p "Install developer tools? (y/N): " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         install_developer_tools
     else
         print_status "Skipping developer tools installation"
-        echo ""
     fi
 
     # Final cleanup
-    print_step "Final Cleanup"
-    print_status "Removing unnecessary packages..."
-    apt autoremove -y &>/dev/null &
-    spinner $! "Cleaning up packages"
+    # Final cleanup
+    print_status "Cleaning up..."
+    apt autoremove -y
+    apt autoclean
 
-    print_status "Clearing package cache..."
-    apt autoclean &>/dev/null
-
-    # Success message with cool styling
+    # Success message
     echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "    \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557"
-    echo "    \u2588\u2588\u2554\u2550\u2550\u2550\u255d \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d"
-    echo "    \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2557  "
-    echo "    \u255a\u2550\u2550\u2550\u2550\u2588\u2588\u2551 \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255d \u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2554\u2550\u2550\u255d  "
-    echo "    \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d \u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557"
-    echo "    \u255a\u2550\u2550\u2550\u2550\u2550\u255d   \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d"
-    echo -e "${NC}"
+    echo "=================================================================================="
+    print_success "Nova installation completed successfully!"
+    echo "=================================================================================="
     echo ""
-    echo -e "${CYAN}${BOLD}    Nova installation completed successfully!${NC}"
+    echo "Next steps:"
+    echo "  1. Reboot your system to ensure all services start correctly"
+    echo "  2. Log into GNOME and configure your preferences"
+    echo "  3. Set up GNOME Online Accounts for cloud integration"
+    echo "  4. Install additional software from GNOME Software or Flatpak"
     echo ""
-    echo -e "${YELLOW}${BOLD}Next steps:${NC}"
-    echo -e "  ${GREEN}1.${NC} Reboot your system: ${BOLD}sudo reboot${NC}"
-    echo -e "  ${GREEN}2.${NC} Log into GNOME and enjoy your new desktop"
-    echo -e "  ${GREEN}3.${NC} Set up GNOME Online Accounts for cloud integration"
-    echo -e "  ${GREEN}4.${NC} Install apps from GNOME Software or Flatpak"
+    echo "Logs saved to: ${LOG_FILE}"
     echo ""
-    echo -e "${DIM}Installation logs saved to: ${LOG_FILE}${NC}"
-    echo ""
-    echo -e "${PURPLE}${BOLD}${STAR} Thank you for choosing Nova! ${STAR}${NC}"
-    echo ""
-    echo -e "${CYAN}Ready to reboot? ${BOLD}(y/N)${NC}"
-    read -p "  > " -n 1 -r
+    read -p "Ready to reboot? (y/N): " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${GREEN}${BOLD}Rebooting in 3 seconds...${NC}"
+        echo "Rebooting in 3 seconds..."
         sleep 3
         reboot
     else
-        echo -e "${YELLOW}Remember to reboot when ready: ${BOLD}sudo reboot${NC}"
+        print_status "Please reboot your system now: sudo reboot"
     fi
 }
 

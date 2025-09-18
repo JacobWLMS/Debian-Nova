@@ -481,6 +481,7 @@ main() {
     echo "Press Enter to begin installation..."
     read
 
+    echo "DEBUG: Starting setup_debian_testing..."
     setup_debian_testing
     check_requirements
     update_system
@@ -507,7 +508,6 @@ main() {
         print_status "Skipping developer tools installation"
     fi
 
-    # Final cleanup
     # Final cleanup
     print_status "Cleaning up..."
     apt autoremove -y

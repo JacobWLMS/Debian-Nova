@@ -215,15 +215,37 @@ install_gnome_desktop() {
         (
             echo "10"
             echo "# Installing GNOME core components (this may take a while)..."
-            DEBIAN_FRONTEND=noninteractive apt install -y gnome-core
+            DEBIAN_FRONTEND=noninteractive apt install -y gnome-core gdm3
+
+            # Core GNOME apps
+            local GNOME_CORE_APPS=(
+                nautilus              # Files
+                gnome-text-editor      # Text Editor
+                gnome-terminal         # Terminal
+                gnome-control-center   # Settings
+                gnome-calculator       # Calculator
+                gnome-screenshot       # Screenshot
+                eog                    # Image Viewer
+                evince                 # PDF viewer
+                gnome-software         # Software center
+            )
+            DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_CORE_APPS[@]}"
+
+            echo "50"
+            echo "# Installing GNOME extensions and tweaks..."
+            local GNOME_EXTENSIONS=(
+                gnome-tweaks
+                gnome-shell-extensions
+                gnome-shell-extension-appindicator
+            )
+            DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTENSIONS[@]}"
+
             echo "70"
             echo "# Installing GNOME Circle essentials..."
             local GNOME_EXTRAS=(
                 gnome-system-monitor
-                gnome-tweaks
                 gnome-disk-utility
                 deja-dup
-                gnome-software
                 gnome-software-plugin-flatpak
             )
             DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTRAS[@]}"
@@ -234,15 +256,35 @@ install_gnome_desktop() {
         ) | zenity --progress --title="Nova Installer" --text="Installing GNOME desktop..." --auto-close --width=400 2>/dev/null || true
     else
         # Install core GNOME (minimal)
-        DEBIAN_FRONTEND=noninteractive apt install -y gnome-core
+        DEBIAN_FRONTEND=noninteractive apt install -y gnome-core gdm3
+
+        # Core GNOME apps
+        local GNOME_CORE_APPS=(
+            nautilus              # Files
+            gnome-text-editor      # Text Editor
+            gnome-terminal         # Terminal
+            gnome-control-center   # Settings
+            gnome-calculator       # Calculator
+            gnome-screenshot       # Screenshot
+            eog                    # Image Viewer
+            evince                 # PDF viewer
+            gnome-software         # Software center
+        )
+        DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_CORE_APPS[@]}"
+
+        # GNOME extensions and tweaks
+        local GNOME_EXTENSIONS=(
+            gnome-tweaks
+            gnome-shell-extensions
+            gnome-shell-extension-appindicator
+        )
+        DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTENSIONS[@]}"
 
         # Install GNOME Circle essentials
         local GNOME_EXTRAS=(
             gnome-system-monitor
-            gnome-tweaks
             gnome-disk-utility
             deja-dup
-            gnome-software
             gnome-software-plugin-flatpak
         )
 
@@ -250,6 +292,11 @@ install_gnome_desktop() {
 
         # Enable GDM if not already
         systemctl enable gdm || true
+    fi
+
+    # Enable AppIndicator extension for current user (if running via sudo)
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        sudo -u "$SUDO_USER" dbus-launch gsettings set org.gnome.shell enabled-extensions "['appindicatorsupport@rgcjonas.gmail.com']" 2>/dev/null || true
     fi
 
     print_success "GNOME desktop installed"
@@ -298,9 +345,15 @@ install_modern_stack() {
     DEBIAN_FRONTEND=noninteractive apt install -y fwupd
     systemctl enable fwupd-refresh.timer || true
 
-    # Performance optimizations
+    # Performance optimizations and system stability
     print_status "Installing performance optimization tools..."
-    DEBIAN_FRONTEND=noninteractive apt install -y zram-tools power-profiles-daemon
+    DEBIAN_FRONTEND=noninteractive apt install -y zram-tools power-profiles-daemon gamemode
+
+    # Enable systemd-oomd for memory pressure handling
+    systemctl enable systemd-oomd || true
+
+    # Enable multiarch for 32-bit library support (gaming)
+    dpkg --add-architecture i386 || true
 
     # Configure zram
     if [[ ! -f /etc/default/zramswap ]]; then
@@ -330,6 +383,26 @@ EOF
         fi
     fi
 
+    # Firewall setup
+    print_status "Configuring firewall..."
+    DEBIAN_FRONTEND=noninteractive apt install -y ufw
+    ufw --force enable
+    ufw default deny incoming
+    ufw default allow outgoing
+
+    # Gaming support (underlying only)
+    print_status "Installing gaming support libraries..."
+    local GAMING_PACKAGES=(
+        mesa-vulkan-drivers
+        mesa-utils
+        vulkan-tools
+    )
+    DEBIAN_FRONTEND=noninteractive apt install -y "${GAMING_PACKAGES[@]}"
+
+    # Power management
+    print_status "Installing power management tools..."
+    DEBIAN_FRONTEND=noninteractive apt install -y powertop
+
     print_success "Modern system stack installed"
 }
 
@@ -339,6 +412,21 @@ install_connectivity() {
 
     # GNOME Online Accounts
     DEBIAN_FRONTEND=noninteractive apt install -y gnome-online-accounts
+
+    # Networking and VPN support
+    print_status "Installing networking and VPN tools..."
+    local NETWORK_PACKAGES=(
+        openssh-client
+        openvpn
+        wireguard-tools
+        network-manager-openvpn
+        network-manager-openvpn-gnome
+        network-manager-vpnc
+        network-manager-vpnc-gnome
+        avahi-daemon
+        gnome-remote-desktop
+    )
+    DEBIAN_FRONTEND=noninteractive apt install -y "${NETWORK_PACKAGES[@]}"
 
     # Android support
     print_status "Installing Android device support..."
@@ -462,11 +550,10 @@ install_developer_tools() {
         strace
     )
 
-    # Programming languages
+    # Programming languages (preinstalled in your spec)
     local LANGUAGES=(
         python3
         python3-pip
-        python3-venv
         default-jdk
         nodejs
         npm

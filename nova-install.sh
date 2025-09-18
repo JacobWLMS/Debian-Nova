@@ -247,7 +247,7 @@ install_connectivity() {
     # iOS support
     print_status "Installing iOS device support..."
     local IOS_PACKAGES=(
-        libimobiledevice6
+        libimobiledevice-1.0-6
         libimobiledevice-utils
         ifuse
         usbmuxd

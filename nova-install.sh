@@ -71,15 +71,7 @@ setup_debian_testing() {
 
         echo ""
         print_warning "This system is not running Debian Testing/Trixie"
-        echo "WARNING: This will upgrade your entire system to Debian Testing!"
-        echo "This includes all packages and may take significant time."
-        echo ""
-        read -p "Do you want to continue? (y/N): " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_error "Debian Testing is required for Nova. Exiting."
-            exit 1
-        fi
+        print_status "Upgrading system to Debian Testing..."
 
         # Backup current sources.list
         cp /etc/apt/sources.list /etc/apt/sources.list.backup.$(date +%Y%m%d_%H%M%S)
@@ -469,19 +461,10 @@ echo ""
 
 # Main installation flow
 main() {
-    echo "This will transform your Debian system into Nova:"
-    echo "  - Minimal GNOME desktop with Wayland"
-    echo "  - Modern audio stack (PipeWire)"
-    echo "  - Flatpak app ecosystem"
-    echo "  - Gaming and development support"
-    echo "  - Quality-of-life improvements"
-    echo ""
+    echo "Nova Installer - Transforming Debian Testing into Nova"
+    echo "Installing: GNOME desktop, PipeWire, Flatpak, gaming support, developer tools"
     echo "Estimated time: 15-30 minutes"
     echo ""
-    echo "Press Enter to begin installation..."
-    read
-
-    echo "DEBUG: Starting setup_debian_testing..."
     setup_debian_testing
     check_requirements
     update_system
@@ -491,22 +474,8 @@ main() {
     install_connectivity
     install_polish
 
-    # Ask about developer tools
-    echo ""
-    echo "Developer Tools (Optional)"
-    echo "Available tools:"
-    echo "  - Build essentials (gcc, cmake, ninja)"
-    echo "  - Programming languages (Python, Java, Node.js, Rust, Go)"
-    echo "  - Container tools (Podman, Buildah)"
-    echo "  - Debugging tools (gdb, valgrind, strace)"
-    echo ""
-    read -p "Install developer tools? (y/N): " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        install_developer_tools
-    else
-        print_status "Skipping developer tools installation"
-    fi
+    # Install developer tools (always)
+    install_developer_tools
 
     # Final cleanup
     print_status "Cleaning up..."
@@ -527,15 +496,7 @@ main() {
     echo ""
     echo "Logs saved to: ${LOG_FILE}"
     echo ""
-    read -p "Ready to reboot? (y/N): " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "Rebooting in 3 seconds..."
-        sleep 3
-        reboot
-    else
-        print_status "Please reboot your system now: sudo reboot"
-    fi
+    print_status "Installation complete. Please reboot your system: sudo reboot"
 }
 
 # Run main function

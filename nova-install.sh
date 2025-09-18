@@ -69,17 +69,67 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Configure Debian Testing repositories
+setup_debian_testing() {
+    print_status "Configuring Debian Testing repositories..."
+
+    # Check current Debian version - include trixie (current testing codename)
+    # Check both old sources.list format and new DEB822 .sources format
+    if ! (grep -qE "testing|trixie|sid" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null || \
+          grep -qE "Suites:.*testing|Suites:.*trixie|Suites:.*sid" /etc/apt/sources.list.d/*.sources 2>/dev/null); then
+        print_warning "System is not running Debian Testing/Trixie"
+
+        if command -v zenity &>/dev/null; then
+            if ! zenity --question --title="Nova Installer" \
+                      --text="This system is not running Debian Testing.\n\nWould you like to upgrade to Debian Testing?\n\n⚠️ WARNING: This will upgrade your entire system!" \
+                      --width=400 2>/dev/null; then
+                print_error "Debian Testing is required for Nova. Exiting."
+                exit 1
+            fi
+        else
+            echo ""
+            print_warning "This system is not running Debian Testing."
+            echo "Would you like to upgrade to Debian Testing?"
+            echo "WARNING: This will upgrade your entire system!"
+            read -p "Continue? (y/N): " -n 1 -r
+            echo ""
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_error "Debian Testing is required for Nova. Exiting."
+                exit 1
+            fi
+        fi
+
+        # Backup current sources.list
+        cp /etc/apt/sources.list /etc/apt/sources.list.backup.$(date +%Y%m%d_%H%M%S)
+
+        # Configure Debian Testing repositories
+        cat > /etc/apt/sources.list <<EOF
+deb http://deb.debian.org/debian/ testing main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ testing main contrib non-free non-free-firmware
+
+deb http://security.debian.org/debian-security testing-security main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security testing-security main contrib non-free non-free-firmware
+
+deb http://deb.debian.org/debian/ testing-updates main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ testing-updates main contrib non-free non-free-firmware
+EOF
+
+        print_status "Upgrading to Debian Testing..."
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt full-upgrade -y
+
+        print_success "System upgraded to Debian Testing"
+    else
+        print_success "System is already running Debian Testing/Trixie"
+    fi
+}
+
 # Check system requirements
 check_requirements() {
     print_status "Checking system requirements..."
 
-    # Check if Debian Testing
-    if ! grep -q "testing\|sid" /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null; then
-        print_warning "This doesn't appear to be Debian Testing/Sid. Continuing anyway..."
-    fi
-
-    # Check for internet connection
-    if ! ping -c 1 debian.org &>/dev/null; then
+    # Check for internet connection (try multiple methods)
+    if ! ping -c 1 -W 2 debian.org &>/dev/null && ! curl -s --head http://deb.debian.org &>/dev/null; then
         print_error "No internet connection detected"
         exit 1
     fi
@@ -97,10 +147,22 @@ check_requirements() {
 # Update system
 update_system() {
     print_status "Updating package lists..."
-    apt update
 
-    print_status "Upgrading existing packages..."
-    DEBIAN_FRONTEND=noninteractive apt upgrade -y
+    if command -v zenity &>/dev/null; then
+        (
+            echo "10"
+            echo "# Updating package lists..."
+            apt update
+            echo "50"
+            echo "# Upgrading existing packages..."
+            DEBIAN_FRONTEND=noninteractive apt upgrade -y
+            echo "100"
+            echo "# System update complete"
+        ) | zenity --progress --title="Nova Installer" --text="Updating system..." --auto-close --width=400 2>/dev/null || true
+    else
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt upgrade -y
+    fi
 
     print_success "System updated"
 }
@@ -120,7 +182,22 @@ install_bootstrap_essentials() {
         tar zip unzip p7zip-full
     )
 
-    DEBIAN_FRONTEND=noninteractive apt install -y "${BOOTSTRAP_PACKAGES[@]}"
+    if command -v zenity &>/dev/null; then
+        (
+            echo "30"
+            echo "# Installing core utilities..."
+            DEBIAN_FRONTEND=noninteractive apt install -y sudo curl wget git git-lfs unzip bash-completion ca-certificates
+            echo "60"
+            echo "# Installing system monitoring tools..."
+            DEBIAN_FRONTEND=noninteractive apt install -y htop fastfetch man-db manpages manpages-dev
+            echo "90"
+            echo "# Installing archive tools..."
+            DEBIAN_FRONTEND=noninteractive apt install -y tar zip unzip p7zip-full
+            echo "100"
+        ) | zenity --progress --title="Nova Installer" --text="Installing bootstrap essentials..." --auto-close --width=400 2>/dev/null || true
+    else
+        DEBIAN_FRONTEND=noninteractive apt install -y "${BOOTSTRAP_PACKAGES[@]}"
+    fi
 
     # Configure git-lfs if not already done
     if ! git lfs version &>/dev/null; then
@@ -134,25 +211,55 @@ install_bootstrap_essentials() {
 install_gnome_desktop() {
     print_status "Installing GNOME desktop environment..."
 
-    # Install core GNOME (minimal)
-    DEBIAN_FRONTEND=noninteractive apt install -y gnome-core
+    if command -v zenity &>/dev/null; then
+        (
+            echo "10"
+            echo "# Installing GNOME core components (this may take a while)..."
+            DEBIAN_FRONTEND=noninteractive apt install -y gnome-core
+            echo "70"
+            echo "# Installing GNOME Circle essentials..."
+            local GNOME_EXTRAS=(
+                gnome-system-monitor
+                gnome-tweaks
+                gnome-disk-utility
+                deja-dup
+                gnome-software
+                gnome-software-plugin-flatpak
+            )
+            DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTRAS[@]}"
+            echo "90"
+            echo "# Enabling GDM display manager..."
+            systemctl enable gdm || true
+            echo "100"
+        ) | zenity --progress --title="Nova Installer" --text="Installing GNOME desktop..." --auto-close --width=400 2>/dev/null || true
+    else
+        # Install core GNOME (minimal)
+        DEBIAN_FRONTEND=noninteractive apt install -y gnome-core
 
-    # Install GNOME Circle essentials
-    local GNOME_EXTRAS=(
-        gnome-system-monitor
-        gnome-tweaks
-        gnome-disk-utility
-        deja-dup
-        gnome-software
-        gnome-software-plugin-flatpak
-    )
+        # Install GNOME Circle essentials
+        local GNOME_EXTRAS=(
+            gnome-system-monitor
+            gnome-tweaks
+            gnome-disk-utility
+            deja-dup
+            gnome-software
+            gnome-software-plugin-flatpak
+        )
 
-    DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTRAS[@]}"
+        DEBIAN_FRONTEND=noninteractive apt install -y "${GNOME_EXTRAS[@]}"
 
-    # Enable GDM if not already
-    systemctl enable gdm || true
+        # Enable GDM if not already
+        systemctl enable gdm || true
+    fi
 
     print_success "GNOME desktop installed"
+}
+
+# Progress tracker for Zenity
+show_progress() {
+    if command -v zenity &>/dev/null; then
+        zenity --progress --title="Nova Installer" --text="$1" --percentage="$2" --auto-close --width=400 2>/dev/null || true
+    fi
 }
 
 # Install modern system stack
@@ -239,20 +346,37 @@ install_connectivity() {
         gnome-shell-extension-gsconnect
         libmtp-runtime
         mtp-tools
-        android-tools-adb
-        android-tools-fastboot
     )
-    DEBIAN_FRONTEND=noninteractive apt install -y "${ANDROID_PACKAGES[@]}"
+
+    # Check for android-tools-adb vs adb package names
+    if apt-cache show android-tools-adb &>/dev/null; then
+        ANDROID_PACKAGES+=(android-tools-adb android-tools-fastboot)
+    elif apt-cache show adb &>/dev/null; then
+        ANDROID_PACKAGES+=(adb fastboot)
+    fi
+
+    DEBIAN_FRONTEND=noninteractive apt install -y "${ANDROID_PACKAGES[@]}" || print_warning "Some Android packages failed to install"
 
     # iOS support
     print_status "Installing iOS device support..."
+
+    # Check which libimobiledevice package is available
+    if apt-cache show libimobiledevice-1.0-6 &>/dev/null; then
+        LIBIMOBILE_PKG="libimobiledevice-1.0-6"
+    elif apt-cache show libimobiledevice6 &>/dev/null; then
+        LIBIMOBILE_PKG="libimobiledevice6"
+    else
+        print_warning "libimobiledevice package not found, skipping iOS support"
+        return
+    fi
+
     local IOS_PACKAGES=(
-        libimobiledevice-1.0-6
+        "$LIBIMOBILE_PKG"
         libimobiledevice-utils
         ifuse
         usbmuxd
     )
-    DEBIAN_FRONTEND=noninteractive apt install -y "${IOS_PACKAGES[@]}"
+    DEBIAN_FRONTEND=noninteractive apt install -y "${IOS_PACKAGES[@]}" || print_warning "Some iOS packages failed to install"
 
     # Add current user to necessary groups for device access
     if [[ -n "${SUDO_USER:-}" ]]; then
@@ -266,28 +390,56 @@ install_connectivity() {
 install_polish() {
     print_status "Installing system polish improvements..."
 
-    # Plymouth boot splash
-    print_status "Installing Plymouth boot splash..."
-    DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes
-
-    # Set spinner theme
-    plymouth-set-default-theme spinner || true
-
-    # Update GRUB for quiet splash
-    if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
-        sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
+    if command -v zenity &>/dev/null; then
+        (
+            echo "20"
+            echo "# Installing Plymouth boot splash..."
+            DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes
+            plymouth-set-default-theme spinner || true
+            echo "40"
+            echo "# Configuring GRUB for quiet boot..."
+            if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
+                sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
+            else
+                echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> /etc/default/grub
+            fi
+            echo "60"
+            echo "# Updating GRUB configuration..."
+            update-grub
+            echo "80"
+            echo "# Updating initramfs..."
+            update-initramfs -u
+            echo "90"
+            echo "# Installing kernel headers..."
+            KERNEL_VERSION=$(uname -r)
+            DEBIAN_FRONTEND=noninteractive apt install -y "linux-headers-${KERNEL_VERSION}" || \
+                DEBIAN_FRONTEND=noninteractive apt install -y linux-headers-amd64
+            echo "100"
+        ) | zenity --progress --title="Nova Installer" --text="Installing system polish improvements..." --auto-close --width=400 2>/dev/null || true
     else
-        echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> /etc/default/grub
+        # Plymouth boot splash
+        print_status "Installing Plymouth boot splash..."
+        DEBIAN_FRONTEND=noninteractive apt install -y plymouth plymouth-themes
+
+        # Set spinner theme
+        plymouth-set-default-theme spinner || true
+
+        # Update GRUB for quiet splash
+        if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" /etc/default/grub; then
+            sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
+        else
+            echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' >> /etc/default/grub
+        fi
+
+        update-grub
+        update-initramfs -u
+
+        # Install kernel headers
+        print_status "Installing kernel headers..."
+        KERNEL_VERSION=$(uname -r)
+        DEBIAN_FRONTEND=noninteractive apt install -y "linux-headers-${KERNEL_VERSION}" || \
+            DEBIAN_FRONTEND=noninteractive apt install -y linux-headers-amd64
     fi
-
-    update-grub
-    update-initramfs -u
-
-    # Install kernel headers
-    print_status "Installing kernel headers..."
-    KERNEL_VERSION=$(uname -r)
-    DEBIAN_FRONTEND=noninteractive apt install -y "linux-headers-${KERNEL_VERSION}" || \
-        DEBIAN_FRONTEND=noninteractive apt install -y linux-headers-amd64
 
     print_success "System polish improvements installed"
 }
@@ -338,16 +490,6 @@ install_developer_tools() {
     print_status "Installing programming languages..."
     DEBIAN_FRONTEND=noninteractive apt install -y "${LANGUAGES[@]}"
 
-    # Install .NET SDK from Microsoft
-    print_status "Installing .NET SDK..."
-    if ! command -v dotnet &>/dev/null; then
-        wget -q https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
-        dpkg -i /tmp/packages-microsoft-prod.deb
-        rm /tmp/packages-microsoft-prod.deb
-        apt update
-        DEBIAN_FRONTEND=noninteractive apt install -y dotnet-sdk-8.0
-    fi
-
     print_status "Installing container tools..."
     DEBIAN_FRONTEND=noninteractive apt install -y "${CONTAINERS[@]}"
 
@@ -356,6 +498,21 @@ install_developer_tools() {
 
 # Main installation flow
 main() {
+    # Install zenity first if not present
+    if ! command -v zenity &>/dev/null; then
+        print_status "Installing Zenity for GUI dialogs..."
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt install -y zenity
+    fi
+
+    # Show welcome message
+    if command -v zenity &>/dev/null; then
+        zenity --info --title="Nova Installer" \
+               --text="Welcome to Nova Installer v${SCRIPT_VERSION}\n\nThis will transform your Debian system into Nova:\n• Minimal GNOME desktop\n• Modern system stack (PipeWire, Flatpak)\n• Quality-of-life improvements\n• Optional developer tools\n\nThe installation will take 15-30 minutes." \
+               --width=400 2>/dev/null || true
+    fi
+
+    setup_debian_testing
     check_requirements
     update_system
     install_bootstrap_essentials
@@ -371,7 +528,7 @@ main() {
 
     if command -v zenity &>/dev/null; then
         if zenity --question --title="Nova Installer" \
-                  --text="Would you like to install developer tools?\n\nThis includes:\n• Build tools (gcc, cmake, etc.)\n• Languages (Python, Java, Node.js, .NET, Rust, Go)\n• Container tools (Podman, Buildah)" \
+                  --text="Would you like to install developer tools?\n\nThis includes:\n• Build tools (gcc, cmake, etc.)\n• Languages (Python, Java, Node.js, Rust, Go)\n• Container tools (Podman, Buildah)" \
                   --width=400 2>/dev/null; then
             install_developer_tools
         fi
@@ -406,6 +563,13 @@ main() {
     echo ""
     echo "Logs saved to: ${LOG_FILE}"
     echo ""
+
+    if command -v zenity &>/dev/null; then
+        zenity --info --title="Nova Installer" \
+               --text="Nova installation completed successfully!\n\nPlease reboot your system to complete the setup.\n\nLogs saved to: ${LOG_FILE}" \
+               --width=400 2>/dev/null || true
+    fi
+
     print_status "Please reboot your system now: sudo reboot"
 }
 

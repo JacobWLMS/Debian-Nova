@@ -46,15 +46,6 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Setup logging
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee -a "$LOG_FILE")
-exec 2>&1
-
-print_banner
-echo -e "${DIM}Started: $(date)${NC}"
-echo ""
-
 # Function definitions
 # Cool terminal UI functions
 print_banner() {
@@ -574,6 +565,15 @@ install_developer_tools() {
     print_success "Developer tools installed"
     echo ""
 }
+
+# Setup logging and start
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+print_banner
+echo -e "${DIM}Started: $(date)${NC}"
+echo ""
 
 # Main installation flow
 main() {
